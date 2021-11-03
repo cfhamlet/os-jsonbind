@@ -3,22 +3,21 @@ package jsonbind
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeepGet(t *testing.T) {
+var replaceMe = "--replace-me--"
+
+func TestGetInMap(t *testing.T) {
 	data := []byte(`
 {"a": {"b": 7}}
 `)
-	type Proper struct {
-		B map[string]string `json:"B"`
-	}
-	type Shm struct {
-		Properties Proper `json:"properties"`
-	}
-	raw := Shm{Proper{map[string]string{}}}
+	tmpl := `
+{"properties": {"A": {"properties": {"B": {"bind": "--replace-me--"}}}}}
+`
 	for _, s := range []string{
 		"a.b",
 		"ojg:a.b",
@@ -28,10 +27,47 @@ func TestDeepGet(t *testing.T) {
 		"ojson:$.a.b",
 		"ajson:$.a.b",
 	} {
-		raw.Properties.B["bind"] = s
-		j, _ := json.Marshal(raw)
+		j := strings.Replace(tmpl, replaceMe, s, -1)
 
-		binder, err := Compile(j)
+		binder, err := Compile([]byte(j))
+		require.Nil(t, err)
+		require.NotNil(t, binder)
+		result, binded, err := binder.Bind(context.Background(), data)
+		require.Nil(t, err)
+		require.True(t, binded)
+		m := result.(map[string]interface{})
+		a := m["A"]
+		b := a.(map[string]interface{})["B"]
+		switch i := b.(type) {
+		case json.Number:
+			x, _ := i.Int64()
+			require.EqualValues(t, 7, x)
+		default:
+			require.EqualValues(t, 7, b)
+		}
+	}
+
+}
+
+func TestDeepGet(t *testing.T) {
+	data := []byte(`
+{"a": {"b": 7}}
+`)
+	tmpl := `
+{"properties": {"B": {"bind": "--replace-me--"}}}
+`
+	for _, s := range []string{
+		"a.b",
+		"ojg:a.b",
+		"ojg:$.a.b",
+		"gjson:a.b",
+		"gval:$.a.b",
+		"ojson:$.a.b",
+		"ajson:$.a.b",
+	} {
+		j := strings.Replace(tmpl, replaceMe, s, -1)
+
+		binder, err := Compile([]byte(j))
 		require.Nil(t, err)
 		require.NotNil(t, binder)
 		result, binded, err := binder.Bind(context.Background(), data)
@@ -53,14 +89,10 @@ func TestSimpleGet(t *testing.T) {
 	data := []byte(`
 {"a":1, "b": true}
 `)
-	type Proper struct {
-		A map[string]string `json:"A"`
-	}
-	type Shm struct {
-		Properties Proper `json:"properties"`
-	}
+	tmpl := `
+{"properties": {"A": {"bind": "--replace-me--"}}}
+`
 
-	raw := Shm{Proper{map[string]string{}}}
 	for _, s := range []string{
 		"a",
 		"ojg:a",
@@ -70,10 +102,9 @@ func TestSimpleGet(t *testing.T) {
 		"ojson:$.a",
 		"ajson:$.a",
 	} {
-		raw.Properties.A["bind"] = s
-		j, _ := json.Marshal(raw)
+		j := strings.Replace(tmpl, replaceMe, s, -1)
 
-		binder, err := Compile(j)
+		binder, err := Compile([]byte(j))
 		require.Nil(t, err)
 		require.NotNil(t, binder)
 		result, binded, err := binder.Bind(context.Background(), data)
