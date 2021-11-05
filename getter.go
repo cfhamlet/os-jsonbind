@@ -206,14 +206,14 @@ func (g *AJSONGetter) Get(ctx context.Context, obj interface{}) (interface{}, bo
 	if len(results) > 0 {
 		binded = true
 		if len(results) == 1 {
-			out, err = results[0].Value()
+			out, err = results[0].Unpack()
 			if err != nil {
 				return nil, false, err
 			}
 		} else {
 			o := make([]interface{}, len(results))
 			for i, r := range results {
-				n, e := r.Value()
+				n, e := r.Unpack()
 				if e != nil {
 					return nil, false, e
 				}

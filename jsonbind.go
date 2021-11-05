@@ -70,7 +70,7 @@ func compile(schema interface{}, path []string) (*BindNode, error) {
 		} else {
 			if _, ok := m["properties"]; ok {
 				name = "map"
-			} else if _, ok := m["items"]; ok {
+			} else if _, ok := m["prefixItems"]; ok {
 				name = "slice"
 			}
 		}
@@ -97,11 +97,11 @@ func compile(schema interface{}, path []string) (*BindNode, error) {
 					next = nodes
 				}
 			}
-		} else if items, ok := m["items"]; ok {
+		} else if items, ok := m["prefixItems"]; ok {
 			switch m := items.(type) {
 			case []interface{}:
 				lm := len(m)
-				nodes := make([]interface{}, lm)
+				nodes := make([]*BindNode, lm)
 				if name == "slice" {
 					spec = fmt.Sprintf("%d", lm)
 				}
@@ -214,6 +214,9 @@ func (node *BindNode) Bind(ctx context.Context, p ParsedCache) (interface{}, boo
 			return nil, false, node.wrapError(ErrPreallocate, "not enough slice space")
 		}
 		for i, v := range next {
+			if v == nil {
+				continue
+			}
 			o, d, e := v.Bind(ctx, p)
 			if e != nil {
 				return nil, false, e
