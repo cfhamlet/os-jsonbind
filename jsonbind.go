@@ -14,10 +14,10 @@ type Binder struct {
 	schema *jsonschema.Schema
 }
 
-func (binder *Binder) Bind(ctx context.Context, b []byte) (interface{}, bool, error) {
-	parsed := NewParsed()
-	parsed.jsonBytes = b
+type ParsedCache map[string]interface{}
 
+func (binder *Binder) Bind(ctx context.Context, b []byte) (interface{}, bool, error) {
+	parsed := ParsedCache{"": b}
 	o, d, e := binder.node.Bind(ctx, parsed)
 	if e != nil || !d {
 		return o, d, e
@@ -43,7 +43,12 @@ func Compile(b []byte) (*Binder, error) {
 	}
 
 	if node == nil {
-		node = &BindNode{"$", NewNilGetter(), nil}
+		creator := autoCacheGetterCreators["nil"]
+		getter, err := creator.New("")
+		if err != nil {
+			return nil, err
+		}
+		node = &BindNode{"$", getter, nil}
 	}
 
 	return &Binder{node, schema}, nil
@@ -55,7 +60,7 @@ func compile(schema interface{}, path []string) (*BindNode, error) {
 	switch m := schema.(type) {
 	case map[string]interface{}:
 		spec, binded := m["bind"]
-		name := "default"
+		name := "dft"
 		if binded {
 			s, ok := spec.(string)
 			if !ok {
@@ -123,14 +128,14 @@ func compile(schema interface{}, path []string) (*BindNode, error) {
 			return nil, nil
 		}
 
-		newGetter, ok := newGetters[name]
+		creator, ok := autoCacheGetterCreators[name]
 		if !ok {
 			return nil, fmt.Errorf("%w %s", ErrNotSupported, name)
 		}
 		if spec == nil {
 			spec = ""
 		}
-		getter, err := newGetter(spec.(string))
+		getter, err := creator.New(spec.(string))
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +148,7 @@ func compile(schema interface{}, path []string) (*BindNode, error) {
 
 type BindNode struct {
 	Path string
-	Getter
+	*autoCacheGetter
 	Next interface{}
 }
 
@@ -151,7 +156,20 @@ func (node *BindNode) wrapError(err error, msg string) error {
 	return fmt.Errorf("[%w] %s", BindPathError(node.Path), fmt.Errorf("[%w] %s", err, msg))
 }
 
-func (node *BindNode) Bind(ctx context.Context, p *Parsed) (interface{}, bool, error) {
+func (node *BindNode) Get(ctx context.Context, p ParsedCache) (interface{}, bool, error) {
+	parsed, ok := p[node.CacheName]
+	var err error
+	if !ok {
+		parsed, err = node.New(p[""].([]byte))
+		if err != nil {
+			return nil, false, err
+		}
+		p[node.CacheName] = parsed
+	}
+	return node.autoCacheGetter.Get(ctx, parsed)
+}
+
+func (node *BindNode) Bind(ctx context.Context, p ParsedCache) (interface{}, bool, error) {
 	if node.Next == nil {
 		o, d, e := node.Get(ctx, p)
 		if e != nil {

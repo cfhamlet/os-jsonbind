@@ -1,17 +1,21 @@
 package jsonbind
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/PaesslerAG/gval"
 	gjp "github.com/PaesslerAG/jsonpath"
 	"github.com/ohler55/ojg/jp"
+	"github.com/ohler55/ojg/oj"
 	ojp "github.com/oliveagle/jsonpath"
 	"github.com/spyzhov/ajson"
+	"github.com/tidwall/gjson"
 )
 
 type Getter interface {
-	Get(context.Context, *Parsed) (interface{}, bool, error)
+	Get(context.Context, interface{}) (interface{}, bool, error)
+	New([]byte) (interface{}, error)
 }
 
 type MapGetter struct{}
@@ -22,7 +26,11 @@ func NewMapGetter() *MapGetter {
 	return mapGetter
 }
 
-func (g *MapGetter) Get(context.Context, *Parsed) (interface{}, bool, error) {
+func (g *MapGetter) New([]byte) (interface{}, error) {
+	return nil, nil
+}
+
+func (g *MapGetter) Get(context.Context, interface{}) (interface{}, bool, error) {
 	return make(map[string]interface{}), false, nil
 }
 
@@ -34,7 +42,11 @@ func NewSliceGetter(length int) *SliceGetter {
 	return &SliceGetter{length: length}
 }
 
-func (g *SliceGetter) Get(context.Context, *Parsed) (interface{}, bool, error) {
+func (g *SliceGetter) New([]byte) (interface{}, error) {
+	return nil, nil
+}
+
+func (g *SliceGetter) Get(context.Context, interface{}) (interface{}, bool, error) {
 	return make([]interface{}, g.length), false, nil
 }
 
@@ -46,7 +58,11 @@ func NewNilGetter() *NilGetter {
 	return nilGetter
 }
 
-func (g *NilGetter) Get(context.Context, *Parsed) (interface{}, bool, error) {
+func (g *NilGetter) New([]byte) (interface{}, error) {
+	return nil, nil
+}
+
+func (g *NilGetter) Get(context.Context, interface{}) (interface{}, bool, error) {
 	return nil, false, nil
 }
 
@@ -64,13 +80,12 @@ func NewOJGGetter(spec string) (*OJGGetter, error) {
 	return &OJGGetter{spec, x}, nil
 }
 
-func (g *OJGGetter) Get(ctx context.Context, p *Parsed) (interface{}, bool, error) {
-	err := p.EnsureOJG()
-	if err != nil {
-		return nil, false, err
-	}
+func (g *OJGGetter) New(b []byte) (interface{}, error) {
+	return oj.Parse(b)
+}
 
-	result := g.expr.Get(p.ojgCompiled)
+func (g *OJGGetter) Get(ctx context.Context, obj interface{}) (interface{}, bool, error) {
+	result := g.expr.Get(obj)
 	binded := false
 	var out interface{} = result
 	if len(result) > 0 {
@@ -91,13 +106,14 @@ func NewGJSONGetter(spec string) *GJSONGetter {
 	return &GJSONGetter{spec}
 }
 
-func (g *GJSONGetter) Get(ctx context.Context, p *Parsed) (interface{}, bool, error) {
-	err := p.EnsureGJSON()
-	if err != nil {
-		return nil, false, err
-	}
+func (g *GJSONGetter) New(b []byte) (interface{}, error) {
+	parsed := gjson.ParseBytes(b)
+	return &parsed, nil
+}
 
-	result := p.gjsonCompiled.Get(g.spec)
+func (g *GJSONGetter) Get(ctx context.Context, obj interface{}) (interface{}, bool, error) {
+	parsed := obj.(*gjson.Result)
+	result := parsed.Get(g.spec)
 	binded := false
 	if result.Exists() {
 		binded = true
@@ -120,13 +136,12 @@ func NewGvalJSONPathGetter(spec string) (*GvalJSONPathGetter, error) {
 	return &GvalJSONPathGetter{spec, eval}, nil
 }
 
-func (g *GvalJSONPathGetter) Get(ctx context.Context, p *Parsed) (interface{}, bool, error) {
-	err := p.EnsureJSON()
-	if err != nil {
-		return nil, false, err
-	}
+func (g *GvalJSONPathGetter) New(b []byte) (interface{}, error) {
+	return Unmarshal(bytes.NewReader(b))
+}
 
-	result, err := g.eval(ctx, p.jsonCompiled)
+func (g *GvalJSONPathGetter) Get(ctx context.Context, obj interface{}) (interface{}, bool, error) {
+	result, err := g.eval(ctx, obj)
 	if err != nil {
 		return nil, false, err
 	}
@@ -148,13 +163,12 @@ func NewOJSONPathGetter(spec string) (*OJSONPathGetter, error) {
 	return &OJSONPathGetter{spec, pat}, nil
 }
 
-func (g *OJSONPathGetter) Get(ctx context.Context, p *Parsed) (interface{}, bool, error) {
-	err := p.EnsureJSON()
-	if err != nil {
-		return nil, false, err
-	}
+func (g *OJSONPathGetter) New(b []byte) (interface{}, error) {
+	return Unmarshal(bytes.NewReader(b))
+}
 
-	result, err := g.pat.Lookup(p.jsonCompiled)
+func (g *OJSONPathGetter) Get(ctx context.Context, obj interface{}) (interface{}, bool, error) {
+	result, err := g.pat.Lookup(obj)
 	if err != nil {
 		return nil, false, err
 	}
@@ -176,13 +190,13 @@ func NewAJSONGetter(spec string) (*AJSONGetter, error) {
 	return &AJSONGetter{spec, cmds}, nil
 }
 
-func (g *AJSONGetter) Get(ctx context.Context, p *Parsed) (interface{}, bool, error) {
-	err := p.EnsureAJSON()
-	if err != nil {
-		return nil, false, err
-	}
+func (g *AJSONGetter) New(b []byte) (interface{}, error) {
+	return ajson.Unmarshal(b)
+}
 
-	results, err := ajson.ApplyJSONPath(p.ajsonCompiled, g.cmds)
+func (g *AJSONGetter) Get(ctx context.Context, obj interface{}) (interface{}, bool, error) {
+	parsed := obj.(*ajson.Node)
+	results, err := ajson.ApplyJSONPath(parsed, g.cmds)
 	if err != nil {
 		return nil, false, err
 	}
@@ -212,16 +226,34 @@ func (g *AJSONGetter) Get(ctx context.Context, p *Parsed) (interface{}, bool, er
 	return out, binded, nil
 }
 
+type autoCacheGetter struct {
+	CacheName string
+	Getter
+}
+
+type autoCacheGetterCreator struct {
+	cacheName string
+	new       NewGetter
+}
+
+func (c autoCacheGetterCreator) New(spec string) (*autoCacheGetter, error) {
+	g, e := c.new(spec)
+	if e != nil {
+		return nil, e
+	}
+	return &autoCacheGetter{c.cacheName, g}, nil
+}
+
 type NewGetter func(string) (Getter, error)
 
-var newGetters map[string]NewGetter = map[string]NewGetter{
-	"nil":     func(spec string) (Getter, error) { return NewNilGetter(), nil },
-	"map":     func(spec string) (Getter, error) { return NewMapGetter(), nil },
-	"slice":   func(spec string) (Getter, error) { return NewSliceGetter(MustAtoi(spec)), nil },
-	"ojg":     func(spec string) (Getter, error) { return NewOJGGetter(spec) },
-	"gjson":   func(spec string) (Getter, error) { return NewGJSONGetter(spec), nil },
-	"default": func(spec string) (Getter, error) { return NewGJSONGetter(spec), nil },
-	"gval":    func(spec string) (Getter, error) { return NewGvalJSONPathGetter(spec) },
-	"ojson":   func(spec string) (Getter, error) { return NewOJSONPathGetter(spec) },
-	"ajson":   func(spec string) (Getter, error) { return NewAJSONGetter(spec) },
+var autoCacheGetterCreators = map[string]autoCacheGetterCreator{
+	"nil":   {"", func(string) (Getter, error) { return NewNilGetter(), nil }},
+	"map":   {"", func(string) (Getter, error) { return NewMapGetter(), nil }},
+	"slice": {"", func(spec string) (Getter, error) { return NewSliceGetter(MustAtoi(spec)), nil }},
+	"ojg":   {"ojg", func(spec string) (Getter, error) { return NewOJGGetter(spec) }},
+	"gjson": {"gjson", func(spec string) (Getter, error) { return NewGJSONGetter(spec), nil }},
+	"dft":   {"gjson", func(spec string) (Getter, error) { return NewGJSONGetter(spec), nil }},
+	"gval":  {"json", func(spec string) (Getter, error) { return NewGvalJSONPathGetter(spec) }},
+	"ojson": {"json", func(spec string) (Getter, error) { return NewOJSONPathGetter(spec) }},
+	"ajson": {"ajson", func(spec string) (Getter, error) { return NewAJSONGetter(spec) }},
 }

@@ -42,14 +42,14 @@ func minInt(a, b int) int {
 func SplitSpec(s string) (string, string) {
 	idx := strings.Index(s[0:minInt(8, len(s))], ":")
 	if idx <= 0 {
-		return "default", s
+		return "dft", s
 	}
 	k := s[0:idx]
-	if _, ok := newGetters[k]; ok {
+	if _, ok := autoCacheGetterCreators[k]; ok {
 		return k, s[idx+1:]
 	}
 
-	return "default", s
+	return "dft", s
 }
 
 func JSONPath(path []string) string {

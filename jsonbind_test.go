@@ -46,7 +46,6 @@ func TestGetInMap(t *testing.T) {
 			require.EqualValues(t, 7, b)
 		}
 	}
-
 }
 
 func TestDeepGet(t *testing.T) {
