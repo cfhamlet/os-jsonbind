@@ -42,7 +42,7 @@ test-bench:
 test-cover:
 	@echo
 	@echo "==> Running unit tests with coverage <=="
-	@./scripts/coverage.sh
+	@sh ./scripts/coverage.sh
 
 .PHONY: format
 format: $(GOIMPORTS) $(GOFUMPT)
